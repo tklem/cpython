@@ -3350,6 +3350,7 @@ typedef struct {
     Py_ssize_t di_pos;
     PyObject* di_result; /* reusable result tuple for iteritems */
     Py_ssize_t len;
+    Py_ssize_t* order;
 } dictiterobject;
 
 static PyObject *
@@ -3374,6 +3375,15 @@ dictiter_new(PyDictObject *dict, PyTypeObject *itertype)
     else
         di->di_result = NULL;
     _PyObject_GC_TRACK(di);
+
+    /* adding list of indices to iterate over */
+    di->order = PyMem_NEW(Py_ssize_t, di->len);
+    assert(di->order != NULL);
+    Py_ssize_t i;
+    for(i = 0; i < di->len; i++) {
+        di->order[i] = i;
+    }
+
     return (PyObject *)di;
 }
 
@@ -3382,6 +3392,7 @@ dictiter_dealloc(dictiterobject *di)
 {
     Py_XDECREF(di->di_dict);
     Py_XDECREF(di->di_result);
+    PyMem_FREE(di->order);
     PyObject_GC_Del(di);
 }
 
@@ -3443,15 +3454,15 @@ dictiter_iternextkey(dictiterobject *di)
     if (d->ma_values) {
         if (i >= d->ma_used)
             goto fail;
-        key = DK_ENTRIES(k)[i].me_key;
-        assert(d->ma_values[i] != NULL);
+        key = DK_ENTRIES(k)[di->order[i]].me_key;
+        assert(d->ma_values[di->order[i]] != NULL);
     }
     else {
         Py_ssize_t n = k->dk_nentries;
-        PyDictKeyEntry *entry_ptr = &DK_ENTRIES(k)[i];
+        PyDictKeyEntry *entry_ptr = &DK_ENTRIES(k)[di->order[i]];
         while (i < n && entry_ptr->me_value == NULL) {
-            entry_ptr++;
             i++;
+            entry_ptr = &DK_ENTRIES(k)[di->order[i]];
         }
         if (i >= n)
             goto fail;
